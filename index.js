@@ -8,6 +8,7 @@ const {
     makeWASocket,
     useMultiFileAuthState,
     makeCacheableSignalKeyStore,
+    DisconnectReason,
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 
@@ -16,6 +17,7 @@ const PORT = process.env.PORT || 3000;
 const sessions = new Map();
 const PAIRING_TIMEOUT_MS = 30000;
 const SESSION_LIFETIME_MS = 5 * 60 * 1000;
+const MAX_RESTART_ATTEMPTS = 3;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -57,7 +59,9 @@ function disposeSession(sessionId) {
     const entry = sessions.get(sessionId);
     if (!entry) return;
 
+    clearTimeout(entry.initialTimeout);
     clearTimeout(entry.expiryTimer);
+    clearTimeout(entry.restartTimer);
     try {
         entry.sock?.end();
     } catch (_) {
@@ -65,6 +69,97 @@ function disposeSession(sessionId) {
     }
     fs.rmSync(entry.sessionDir, { recursive: true, force: true });
     sessions.delete(sessionId);
+}
+
+function failSession(entry, error) {
+    if (!sessions.has(entry.id) || entry.ready) return;
+
+    clearTimeout(entry.initialTimeout);
+    entry.status = 'failed';
+    entry.error = error;
+    entry.initialResult.reject(new Error(error));
+}
+
+function startSocket(entry) {
+    if (!sessions.has(entry.id) || entry.ready) return;
+
+    const sock = makeWASocket({
+        auth: {
+            creds: entry.state.creds,
+            keys: makeCacheableSignalKeyStore(entry.state.keys, pino({ level: 'silent' })),
+        },
+        logger: pino({ level: 'silent' }),
+        browser: ['qr-bot', 'Chrome', '1.0.0'],
+    });
+
+    entry.sock = sock;
+    sock.ev.on('creds.update', entry.saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+        // Events from a socket that was replaced after a restart are ignored.
+        if (entry.sock !== sock) return;
+
+        const { connection, qr, lastDisconnect } = update;
+
+        // Both modes wait for this QR/handshake update before producing their
+        // first credential. Phone pairing needs this delay before requesting a
+        // code; a premature request can cause the socket to close.
+        if (qr) {
+            if (entry.mode === 'qr') {
+                try {
+                    entry.qr = await QRCode.toDataURL(qr, { margin: 2, width: 360 });
+                    clearTimeout(entry.initialTimeout);
+                    entry.initialResult.resolve({ type: 'qr', qr: entry.qr });
+                } catch (err) {
+                    failSession(entry, `Unable to render WhatsApp QR code: ${err.message}`);
+                }
+            } else if (!entry.pairingCodeRequested) {
+                entry.pairingCodeRequested = true;
+                try {
+                    const code = await sock.requestPairingCode(entry.phone);
+                    entry.pairingCode = code.match(/.{1,4}/g).join('-');
+                    clearTimeout(entry.initialTimeout);
+                    entry.initialResult.resolve({ type: 'phone', code: entry.pairingCode });
+                } catch (err) {
+                    failSession(entry, `Unable to request WhatsApp pairing code: ${err.message}`);
+                }
+            }
+        }
+
+        if (connection === 'open') {
+            await entry.saveCreds();
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            entry.ready = true;
+            entry.status = 'ready';
+            entry.sessionData = packSessionDir(entry.sessionDir);
+            sock.end();
+            return;
+        }
+
+        if (connection === 'close' && !entry.ready) {
+            const reason = lastDisconnect?.error?.output?.statusCode;
+
+            // WhatsApp/Baileys code 515 explicitly asks the client to create a
+            // fresh socket. Keep the same temporary auth state and renew the
+            // QR or phone pairing code so the browser can continue pairing.
+            if (reason === DisconnectReason.restartRequired && entry.restartAttempts < MAX_RESTART_ATTEMPTS) {
+                entry.restartAttempts += 1;
+                entry.status = 'pending';
+                entry.error = null;
+                entry.qr = null;
+                entry.pairingCode = null;
+                entry.pairingCodeRequested = false;
+                entry.restartTimer = setTimeout(() => startSocket(entry), 500);
+                return;
+            }
+
+            const suffix = reason ? ` (${reason})` : '';
+            const exhausted = reason === DisconnectReason.restartRequired
+                ? ` after ${MAX_RESTART_ATTEMPTS} restart attempts`
+                : '';
+            failSession(entry, `WhatsApp connection closed${suffix}${exhausted}`);
+        }
+    });
 }
 
 app.post('/pair', async (req, res) => {
@@ -84,97 +179,36 @@ app.post('/pair', async (req, res) => {
 
     try {
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-        const sock = makeWASocket({
-            auth: {
-                creds: state.creds,
-                keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
-            },
-            logger: pino({ level: 'silent' }),
-            browser: ['qr-bot', 'Chrome', '1.0.0'],
-        });
-
-        if (state.creds.registered) {
-            sock.end();
-            fs.rmSync(sessionDir, { recursive: true, force: true });
-            return res.status(400).json({ error: 'This temporary session is already registered. Start a new session.' });
-        }
-
         const initialResult = createDeferred();
         const entry = {
-            sock,
+            id: sessionId,
+            state,
             saveCreds,
             sessionDir,
             mode,
+            phone,
+            sock: null,
             ready: false,
             status: 'pending',
             error: null,
             sessionData: null,
             qr: null,
+            pairingCode: null,
             pairingCodeRequested: false,
+            restartAttempts: 0,
+            initialResult,
+            initialTimeout: null,
+            restartTimer: null,
             expiryTimer: null,
         };
+
         sessions.set(sessionId, entry);
-        sock.ev.on('creds.update', saveCreds);
-
-        const initialTimeout = setTimeout(() => {
-            initialResult.reject(new Error(`Timed out waiting for WhatsApp ${mode === 'qr' ? 'QR code' : 'pairing code'}`));
+        entry.initialTimeout = setTimeout(() => {
+            failSession(entry, `Timed out waiting for WhatsApp ${mode === 'qr' ? 'QR code' : 'pairing code'}`);
         }, PAIRING_TIMEOUT_MS);
+        entry.expiryTimer = setTimeout(() => disposeSession(sessionId), SESSION_LIFETIME_MS);
 
-        entry.expiryTimer = setTimeout(() => {
-            disposeSession(sessionId);
-        }, SESSION_LIFETIME_MS);
-
-        sock.ev.on('connection.update', async (update) => {
-            const { connection, qr, lastDisconnect } = update;
-
-            // Baileys emits qr when its initial connection handshake is ready.
-            // For phone pairing, waiting for this event prevents requesting a
-            // code before the socket is ready, which otherwise can close it.
-            if (qr) {
-                if (mode === 'qr') {
-                    try {
-                        entry.qr = await QRCode.toDataURL(qr, { margin: 2, width: 360 });
-                        clearTimeout(initialTimeout);
-                        initialResult.resolve({ type: 'qr', qr: entry.qr });
-                    } catch (err) {
-                        clearTimeout(initialTimeout);
-                        initialResult.reject(err);
-                    }
-                } else if (!entry.pairingCodeRequested) {
-                    entry.pairingCodeRequested = true;
-                    try {
-                        const code = await sock.requestPairingCode(phone);
-                        clearTimeout(initialTimeout);
-                        initialResult.resolve({
-                            type: 'phone',
-                            code: code.match(/.{1,4}/g).join('-'),
-                        });
-                    } catch (err) {
-                        clearTimeout(initialTimeout);
-                        initialResult.reject(err);
-                    }
-                }
-            }
-
-            if (connection === 'open') {
-                await saveCreds();
-                await new Promise((resolve) => setTimeout(resolve, 1500));
-                entry.ready = true;
-                entry.status = 'ready';
-                entry.sessionData = packSessionDir(sessionDir);
-                sock.end();
-            }
-
-            if (connection === 'close' && !entry.ready) {
-                const reason = lastDisconnect?.error?.output?.statusCode;
-                const error = `WhatsApp connection closed${reason ? ` (${reason})` : ''}`;
-                entry.status = 'failed';
-                entry.error = error;
-                clearTimeout(initialTimeout);
-                initialResult.reject(new Error(error));
-            }
-        });
-
+        startSocket(entry);
         const result = await initialResult.promise;
         return res.json({ sessionId, mode, ...result });
     } catch (err) {
@@ -187,7 +221,13 @@ app.get('/session/:sessionId', (req, res) => {
     const entry = sessions.get(req.params.sessionId);
     if (!entry) return res.status(404).json({ status: 'not_found' });
     if (entry.status === 'failed') return res.json({ status: 'failed', error: entry.error });
-    if (!entry.ready) return res.json({ status: 'pending', qr: entry.mode === 'qr' ? entry.qr : null });
+    if (!entry.ready) {
+        return res.json({
+            status: 'pending',
+            qr: entry.mode === 'qr' ? entry.qr : null,
+            code: entry.mode === 'phone' ? entry.pairingCode : null,
+        });
+    }
 
     const sessionId = entry.sessionData;
     clearTimeout(entry.expiryTimer);

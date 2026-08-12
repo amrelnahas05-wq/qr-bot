@@ -158,9 +158,19 @@
         const res = await fetch(`/session/${currentSession}`);
         const data = await res.json();
 
-        if (data.status === 'pending' && mode === 'qr' && data.qr) {
-          const image = document.getElementById('qrImage');
-          if (image.src !== data.qr) image.src = data.qr;
+        if (data.status === 'pending') {
+          const status = document.getElementById('statusMsg');
+          if (mode === 'qr' && data.qr) {
+            const image = document.getElementById('qrImage');
+            if (image.src !== data.qr) image.src = data.qr;
+            document.getElementById('qrBox').style.display = 'block';
+            status.textContent = 'Scan the current QR code with WhatsApp. It refreshes automatically if WhatsApp requests a restart.';
+          }
+          if (mode === 'phone' && data.code) {
+            document.getElementById('codeValue').textContent = data.code;
+            document.getElementById('codeBox').style.display = 'block';
+            status.textContent = 'Enter the newest pairing code in WhatsApp. The code refreshes automatically if WhatsApp requests a restart.';
+          }
           return;
         }
 
