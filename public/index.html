@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>324-servant-Bot | QR Pairing</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #0d0d0d; color: #f0f0f0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 16px; padding: 40px 36px; max-width: 480px; width: 100%; text-align: center; }
+    .logo { font-size: 2.4rem; margin-bottom: 8px; }
+    h1 { font-size: 1.5rem; color: #25d366; margin-bottom: 6px; }
+    .subtitle { font-size: .9rem; color: #888; margin-bottom: 28px; line-height: 1.5; }
+    .steps { text-align: left; background: #111; border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; font-size: .88rem; color: #aaa; line-height: 1.9; }
+    .steps b { color: #ddd; }
+    button { width: 100%; padding: 14px; background: #25d366; color: #000; border: none; border-radius: 10px; font-size: 1rem; font-weight: 700; cursor: pointer; }
+    button:disabled { background: #1a5c33; color: #777; cursor: not-allowed; }
+    .qr-box { margin-top: 24px; background: #fff; border-radius: 12px; padding: 16px; display: none; }
+    .qr-box img { display: block; width: 100%; max-width: 360px; margin: auto; }
+    .status { display: none; margin-top: 14px; color: #aaa; font-size: .88rem; }
+    .session-box { margin-top: 24px; background: #111; border: 1px solid #ffd700; border-radius: 12px; padding: 20px; display: none; }
+    .session-value { font-size: .72rem; color: #ffd700; word-break: break-all; font-family: monospace; line-height: 1.6; max-height: 120px; overflow-y: auto; background: #0d0d0d; padding: 10px; border-radius: 8px; margin: 12px 0; }
+    .copy-btn { background: #ffd700; color: #000; width: auto; padding: 10px 20px; font-size: .88rem; }
+    .error { color: #ff4c4c; font-size: .88rem; margin-top: 12px; }
+    .github-link { margin-top: 28px; font-size: .8rem; color: #555; }
+    .github-link a { color: #888; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">🤖</div>
+    <h1>324-servant-Bot</h1>
+    <p class="subtitle">Scan the QR code to connect your WhatsApp account and generate a SESSION_ID.</p>
+
+    <div class="steps">
+      <b>How it works:</b><br />
+      1. Click <b>Generate QR Code</b><br />
+      2. Open WhatsApp → <b>Settings</b> → <b>Linked Devices</b><br />
+      3. Tap <b>Link a Device</b> and scan the QR code<br />
+      4. Wait for the SESSION_ID to appear<br />
+      5. Copy it into your bot's <b>SESSION_ID</b> environment variable
+    </div>
+
+    <button id="pairBtn" onclick="startPairing()">Generate QR Code</button>
+    <p class="error" id="errorMsg"></p>
+    <p class="status" id="statusMsg">Waiting for you to scan the QR code...</p>
+
+    <div class="qr-box" id="qrBox"><img id="qrImage" alt="WhatsApp pairing QR code" /></div>
+
+    <div class="session-box" id="sessionBox">
+      <div>✅ Paired successfully! Copy your SESSION_ID:</div>
+      <div class="session-value" id="sessionValue"></div>
+      <button class="copy-btn" onclick="copySession()">Copy SESSION_ID</button>
+    </div>
+
+    <div class="github-link"><a href="https://github.com/amrelnahas05-wq/324SuperBot" target="_blank">github.com/amrelnahas05-wq/324SuperBot</a></div>
+  </div>
+
+  <script>
+    let currentSession = '';
+    let pollInterval = null;
+
+    async function startPairing() {
+      const btn = document.getElementById('pairBtn');
+      const errorEl = document.getElementById('errorMsg');
+      errorEl.textContent = '';
+      btn.disabled = true;
+      btn.textContent = 'Generating QR Code...';
+
+      try {
+        const res = await fetch('/pair', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Could not generate QR code.');
+
+        currentSession = data.sessionId;
+        document.getElementById('qrImage').src = data.qr;
+        document.getElementById('qrBox').style.display = 'block';
+        document.getElementById('statusMsg').style.display = 'block';
+        btn.textContent = 'QR Code Active';
+        pollInterval = setInterval(pollSession, 2000);
+      } catch (err) {
+        errorEl.textContent = err.message || 'Network error. Is the server running?';
+        btn.disabled = false;
+        btn.textContent = 'Generate QR Code';
+      }
+    }
+
+    async function pollSession() {
+      try {
+        const res = await fetch(`/session/${currentSession}`);
+        const data = await res.json();
+        if (data.status === 'ready') {
+          clearInterval(pollInterval);
+          document.getElementById('statusMsg').style.display = 'none';
+          document.getElementById('qrBox').style.display = 'none';
+          document.getElementById('sessionValue').textContent = data.sessionId;
+          document.getElementById('sessionBox').style.display = 'block';
+        }
+      } catch (_) {}
+    }
+
+    function copySession() {
+      const text = document.getElementById('sessionValue').textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.querySelector('.copy-btn');
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = 'Copy SESSION_ID'; }, 2000);
+      });
+    }
+  </script>
+</body>
+</html>
