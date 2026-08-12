@@ -1,8 +1,8 @@
 # qr-bot
 
-`qr-bot` is a small local web server that displays a WhatsApp QR code and creates a `SESSION_ID` after you scan it. It is intended for connecting **your own** WhatsApp account to a compatible bot deployment.
+`qr-bot` is a local WhatsApp pairing server that creates a `SESSION_ID` after you link **your own** WhatsApp account. It supports two pairing methods in one browser page: scanning a QR code or entering an eight-character pairing code on your phone.
 
-> **Security notice:** A generated `SESSION_ID` contains WhatsApp authentication material. Treat it like a password. Do not post it in GitHub issues, chat messages, screenshots, or public repositories.
+> **Security notice:** A generated `SESSION_ID` contains WhatsApp authentication material. Treat it like a password. Do not put it in GitHub, screenshots, chat messages, or any public location.
 
 ## Requirements
 
@@ -14,7 +14,7 @@
 
 ## Run locally
 
-Clone the repository and install dependencies:
+Clone the repository, install dependencies, and start the server:
 
 ```bash
 git clone https://github.com/amrelnahas05-wq/qr-bot.git
@@ -23,15 +23,24 @@ npm install
 npm start
 ```
 
-Open [http://localhost:3000](http://localhost:3000), click **Generate QR Code**, then scan it from WhatsApp:
+Open [http://localhost:3000](http://localhost:3000). Keep the terminal running until the website displays the `SESSION_ID`.
 
-1. Open WhatsApp on your phone.
-2. Go to **Settings → Linked Devices**.
-3. Select **Link a Device**.
-4. Scan the QR code in your browser.
-5. Wait for the `SESSION_ID` to appear, then copy it into your bot's `SESSION_ID` environment variable.
+## Pairing methods
 
-Keep the terminal running until the session ID is displayed. Stop the local server with `Ctrl+C` when you are finished.
+| Method | How to use it |
+| --- | --- |
+| **Scan QR Code** | Select **Scan QR Code**, click **Generate QR Code**, then open WhatsApp → **Settings** → **Linked Devices** → **Link a Device** and scan the displayed code. |
+| **Use Phone Number** | Select **Use Phone Number**, enter your WhatsApp number including country code, click **Get Pairing Code**, then open WhatsApp → **Linked Devices** → **Link a Device** → **Link with phone number** and enter the displayed code. |
+
+For the phone-number method, use digits only. For example, an Egyptian number might be entered as:
+
+```text
+201060715493
+```
+
+Do not include `+`, spaces, parentheses, or hyphens. Use only the newest pairing code, because the codes expire quickly.
+
+After either method links successfully, copy the complete `SESSION_ID` and set it as the `SESSION_ID` environment variable in the bot service that will use the account.
 
 ## Use a different port on Windows PowerShell
 
@@ -41,16 +50,16 @@ If port `3000` is already in use, run:
 $env:PORT=3001; npm start
 ```
 
-Then browse to [http://localhost:3001](http://localhost:3001).
+Then open [http://localhost:3001](http://localhost:3001).
 
 ## Project files
 
 | Path | Purpose |
 | --- | --- |
-| `index.js` | Express server, Baileys connection, QR generation, and session packaging |
-| `public/index.html` | Browser interface for displaying and scanning the QR code |
+| `index.js` | Express server, Baileys connection, QR generation, phone-code creation, and session packaging |
+| `public/index.html` | Browser interface for selecting and completing either pairing method |
 | `package.json` | Dependencies and start command |
 
 ## Responsible use
 
-Use this project only with accounts you own or are authorized to manage. Keep the generated session data private and revoke or replace it if you suspect it has been exposed.
+Use this project only with accounts you own or are authorized to manage. Keep generated session data private, and replace it if you suspect it was exposed.
