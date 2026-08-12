@@ -43,7 +43,7 @@
   <main class="card">
     <div class="logo">🤖</div>
     <h1>qr-bot</h1>
-    <p class="subtitle">Connect your WhatsApp account and create a private SESSION_ID.</p>
+    <p class="subtitle">Connect your WhatsApp account and create private Railway session variables.</p>
 
     <div class="tabs" role="tablist" aria-label="Pairing method">
       <button class="tab active" id="qrTab" type="button" onclick="setMode('qr')">Scan QR Code</button>
@@ -70,9 +70,10 @@
     </section>
 
     <section class="session-box" id="sessionBox">
-      <div>Paired successfully. Copy your SESSION_ID:</div>
+      <div>Paired successfully. Add every variable below to Railway:</div>
+      <div class="box-label">Use Railway's <b>Raw Editor</b> to paste all lines, or create each variable separately. Keep every value private.</div>
       <div class="session-value" id="sessionValue"></div>
-      <button class="copy-btn" type="button" onclick="copySession()">Copy SESSION_ID</button>
+      <button class="copy-btn" type="button" onclick="copySession()">Copy Railway Variables</button>
     </section>
 
     <p class="github-link"><a href="https://github.com/amrelnahas05-wq/qr-bot" target="_blank" rel="noreferrer">github.com/amrelnahas05-wq/qr-bot</a></p>
@@ -180,7 +181,8 @@
           document.getElementById('statusMsg').style.display = 'none';
           document.getElementById('qrBox').style.display = 'none';
           document.getElementById('codeBox').style.display = 'none';
-          document.getElementById('sessionValue').textContent = data.sessionId;
+          const sessionParts = data.sessionParts || (data.sessionId ? [{ name: 'SESSION_ID', value: data.sessionId }] : []);
+          document.getElementById('sessionValue').textContent = sessionParts.map((part) => `${part.name}=${part.value}`).join('\n\n');
           document.getElementById('sessionBox').style.display = 'block';
           document.getElementById('startBtn').textContent = 'Start New Session';
           document.getElementById('startBtn').disabled = false;
@@ -205,7 +207,7 @@
       navigator.clipboard.writeText(text).then(() => {
         const btn = document.querySelector('.copy-btn');
         btn.textContent = 'Copied!';
-        setTimeout(() => { btn.textContent = 'Copy SESSION_ID'; }, 2000);
+        setTimeout(() => { btn.textContent = 'Copy Railway Variables'; }, 2000);
       });
     }
 

@@ -1,6 +1,6 @@
 # qr-bot
 
-`qr-bot` is a local WhatsApp pairing server that creates a `SESSION_ID` after you link **your own** WhatsApp account. It supports two pairing methods in one browser page: scanning a QR code or entering an eight-character pairing code on your phone.
+`qr-bot` is a local WhatsApp pairing server that creates Railway-compatible session variables after you link **your own** WhatsApp account. It supports two pairing methods in one browser page: scanning a QR code or entering an eight-character pairing code on your phone.
 
 > **Security notice:** A generated `SESSION_ID` contains WhatsApp authentication material. Treat it like a password. Do not put it in GitHub, screenshots, chat messages, or any public location.
 
@@ -23,7 +23,7 @@ npm install
 npm start
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Keep the terminal running until the website displays the `SESSION_ID`.
+Open [http://localhost:3000](http://localhost:3000). Keep the terminal running until the website displays the Railway session variables.
 
 ## Pairing methods
 
@@ -40,7 +40,19 @@ For the phone-number method, use digits only. For example, an Egyptian number mi
 
 Do not include `+`, spaces, parentheses, or hyphens. Use only the newest pairing code, because the codes expire quickly.
 
-After either method links successfully, copy the complete `SESSION_ID` and set it as the `SESSION_ID` environment variable in the bot service that will use the account.
+## Deploying the generated session to Railway
+
+After either method links successfully, the page displays one small count variable plus one or more authentication-data variables:
+
+```text
+SESSION_ID_PARTS=2
+SESSION_ID_1=<first session-data chunk>
+SESSION_ID_2=<second session-data chunk>
+```
+
+The exact number of `SESSION_ID_N` variables varies by session. Copy **every** displayed line. In your bot service on Railway, open **Variables → Raw Editor**, paste the copied lines, save them, and redeploy the service.
+
+> Railway limits a single variable value, so do **not** merge the chunks into one `SESSION_ID` value. Keep the variables private and do not store them in GitHub or share them in screenshots.
 
 ## Use a different port on Windows PowerShell
 

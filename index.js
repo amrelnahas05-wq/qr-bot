@@ -18,6 +18,9 @@ const sessions = new Map();
 const PAIRING_TIMEOUT_MS = 30000;
 const SESSION_LIFETIME_MS = 5 * 60 * 1000;
 const MAX_RESTART_ATTEMPTS = 3;
+// Railway accepts environment-variable values up to 32,768 characters.
+// Keep chunks below that limit to leave a safety margin.
+const SESSION_CHUNK_SIZE = 28000;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -29,7 +32,20 @@ function cleanPhone(phone) {
 function packSessionDir(sessionDir) {
     const zip = new AdmZip();
     zip.addLocalFolder(sessionDir);
-    return zip.toBuffer().toString('base64');
+    const encoded = zip.toBuffer().toString('base64');
+    const parts = [];
+
+    for (let offset = 0, index = 1; offset < encoded.length; offset += SESSION_CHUNK_SIZE, index += 1) {
+        parts.push({
+            name: `SESSION_ID_${index}`,
+            value: encoded.slice(offset, offset + SESSION_CHUNK_SIZE),
+        });
+    }
+
+    return [
+        { name: 'SESSION_ID_PARTS', value: String(parts.length) },
+        ...parts,
+    ];
 }
 
 function createDeferred() {
@@ -131,7 +147,7 @@ function startSocket(entry) {
             await new Promise((resolve) => setTimeout(resolve, 1500));
             entry.ready = true;
             entry.status = 'ready';
-            entry.sessionData = packSessionDir(entry.sessionDir);
+            entry.sessionParts = packSessionDir(entry.sessionDir);
             sock.end();
             return;
         }
@@ -191,7 +207,7 @@ app.post('/pair', async (req, res) => {
             ready: false,
             status: 'pending',
             error: null,
-            sessionData: null,
+            sessionParts: null,
             qr: null,
             pairingCode: null,
             pairingCodeRequested: false,
@@ -229,11 +245,11 @@ app.get('/session/:sessionId', (req, res) => {
         });
     }
 
-    const sessionId = entry.sessionData;
+    const sessionParts = entry.sessionParts;
     clearTimeout(entry.expiryTimer);
     fs.rmSync(entry.sessionDir, { recursive: true, force: true });
     sessions.delete(req.params.sessionId);
-    return res.json({ status: 'ready', sessionId });
+    return res.json({ status: 'ready', sessionParts });
 });
 
 app.listen(PORT, () => {
