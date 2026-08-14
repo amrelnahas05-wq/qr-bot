@@ -9,6 +9,7 @@ const {
     useMultiFileAuthState,
     makeCacheableSignalKeyStore,
     DisconnectReason,
+    fetchLatestWaWebVersion,
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 
@@ -22,6 +23,8 @@ const DELIVERY_SETTLE_MS = 750;
 // Railway accepts environment-variable values up to 32,768 characters.
 // Keep chunks below that limit to leave a safety margin.
 const SESSION_CHUNK_SIZE = 28000;
+let cachedWaWebVersion = null;
+let waWebVersionRequest = null;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -61,6 +64,36 @@ function formatPairingCodeError(error) {
     }
 
     return `Unable to request a WhatsApp pairing code: ${detail}`;
+}
+
+async function getCurrentWaWebVersion() {
+    if (cachedWaWebVersion) return cachedWaWebVersion;
+    if (!waWebVersionRequest) {
+        waWebVersionRequest = (async () => {
+            const result = await fetchLatestWaWebVersion();
+            if (result.isLatest && Array.isArray(result.version) && result.version.length === 3) {
+                cachedWaWebVersion = result.version;
+                return cachedWaWebVersion;
+            }
+
+            // Do not force an undefined version into makeWASocket. Its built-in
+            // default remains a safe fallback if WhatsApp's version endpoint is unavailable.
+            console.warn('[qr-bot] Could not retrieve the current WhatsApp Web version:', result.error?.message || 'unknown error');
+            return null;
+        })().finally(() => {
+            waWebVersionRequest = null;
+        });
+    }
+
+    return waWebVersionRequest;
+}
+
+function formatConnectionCloseError(reason) {
+    if (reason === 405) {
+        return 'WhatsApp rejected the Web handshake (405) even after refreshing its current Web version. Wait a few minutes, confirm Linked Devices can add a device, then request a new code.';
+    }
+
+    return `WhatsApp connection closed${reason ? ` (${reason})` : ''}`;
 }
 
 async function sendSessionToOwner(entry) {
@@ -131,10 +164,19 @@ function failSession(entry, error) {
     entry.initialResult.reject(new Error(error));
 }
 
-function startSocket(entry) {
+async function startSocket(entry) {
     if (!sessions.has(entry.id) || entry.ready) return;
 
-    const sock = makeWASocket({
+    let latestWaWebVersion;
+    try {
+        latestWaWebVersion = await getCurrentWaWebVersion();
+    } catch (err) {
+        failSession(entry, `Unable to verify the current WhatsApp Web version: ${err.message}`);
+        return;
+    }
+    if (!sessions.has(entry.id) || entry.ready) return;
+
+    const socketConfig = {
         auth: {
             creds: entry.state.creds,
             keys: makeCacheableSignalKeyStore(entry.state.keys, pino({ level: 'silent' })),
@@ -145,7 +187,10 @@ function startSocket(entry) {
         // Phone pairing is stricter than QR pairing: use WhatsApp's canonical
         // browser/OS tuple rather than the application label in browser[0].
         browser: ['Mac OS', 'Chrome', '120.0.0'],
-    });
+    };
+    if (latestWaWebVersion) socketConfig.version = latestWaWebVersion;
+
+    const sock = makeWASocket(socketConfig);
 
     entry.sock = sock;
     sock.ev.on('creds.update', entry.saveCreds);
@@ -231,11 +276,24 @@ function startSocket(entry) {
                 return;
             }
 
-            const suffix = reason ? ` (${reason})` : '';
+            // A 405 usually means WhatsApp rejected an expired Web build before
+            // pairing starts. Refresh the version once, then surface a specific
+            // message rather than repeatedly creating dead pairing attempts.
+            if (reason === 405 && entry.versionRefreshAttempts < 1) {
+                entry.versionRefreshAttempts += 1;
+                cachedWaWebVersion = null;
+                entry.status = 'pending';
+                entry.error = null;
+                entry.restartTimer = setTimeout(() => {
+                    void startSocket(entry);
+                }, 1500);
+                return;
+            }
+
             const exhausted = reason === DisconnectReason.restartRequired
                 ? ` after ${MAX_RESTART_ATTEMPTS} restart attempts`
                 : '';
-            failSession(entry, `WhatsApp connection closed${suffix}${exhausted}`);
+            failSession(entry, `${formatConnectionCloseError(reason)}${exhausted}`);
         }
     });
 }
@@ -274,6 +332,7 @@ app.post('/pair', async (req, res) => {
             pairingCode: null,
             pairingCodeRequested: false,
             restartAttempts: 0,
+            versionRefreshAttempts: 0,
             delivery: null,
             initialResult,
             initialTimeout: null,

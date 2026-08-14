@@ -28,6 +28,10 @@ const baileys = {
     useMultiFileAuthState: async () => { throw new Error('Not used by this test.'); },
     makeCacheableSignalKeyStore: () => ({}),
     DisconnectReason: { restartRequired: 515 },
+    fetchLatestWaWebVersion: async () => ({
+        version: [2, 3000, 1045204510],
+        isLatest: true,
+    }),
 };
 
 function fakeRequire(name) {
@@ -44,7 +48,7 @@ assert.match(source, /browser: \['Mac OS', 'Chrome', '120\.0\.0'\]/);
 assert.doesNotMatch(source, /browser: \['qr-bot', 'Chrome'/);
 source = source.replace(
     /app\.listen\(PORT, \(\) => \{[\s\S]*?\}\);\s*$/,
-    'module.exports = { sendSessionToOwner, sessions, formatPairingCodeError };\n',
+    'module.exports = { sendSessionToOwner, sessions, formatPairingCodeError, getCurrentWaWebVersion, formatConnectionCloseError };\n',
 );
 
 const sandbox = {
@@ -60,7 +64,13 @@ const sandbox = {
 };
 vm.runInNewContext(source, sandbox, { filename: 'index.js' });
 
-const { sendSessionToOwner, sessions, formatPairingCodeError } = sandbox.module.exports;
+const {
+    sendSessionToOwner,
+    sessions,
+    formatPairingCodeError,
+    getCurrentWaWebVersion,
+    formatConnectionCloseError,
+} = sandbox.module.exports;
 
 async function invokeSessionEndpoint(entry) {
     sessions.set(entry.id, entry);
@@ -77,6 +87,11 @@ async function invokeSessionEndpoint(entry) {
         formatPairingCodeError(new Error('IQ error 400 bad-request')),
         /request a fresh code/i,
     );
+    assert.deepEqual(
+        await getCurrentWaWebVersion(),
+        [2, 3000, 1045204510],
+    );
+    assert.match(formatConnectionCloseError(405), /Web handshake \(405\)/);
 
     const outbound = [];
     const delivery = await sendSessionToOwner({
