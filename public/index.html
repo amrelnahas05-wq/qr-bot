@@ -70,10 +70,10 @@
     </section>
 
     <section class="session-box" id="sessionBox">
-      <div>Paired successfully. Add every variable below to Railway:</div>
-      <div class="box-label">Use Railway's <b>Raw Editor</b> to paste all lines, or create each variable separately. Keep every value private.</div>
+      <div id="sessionHeading">Paired successfully. Add every variable below to Railway:</div>
+      <div class="box-label" id="sessionNote">Use Railway's <b>Raw Editor</b> to paste all lines, or create each variable separately. Keep every value private.</div>
       <div class="session-value" id="sessionValue"></div>
-      <button class="copy-btn" type="button" onclick="copySession()">Copy Railway Variables</button>
+      <button class="copy-btn" id="copyBtn" type="button" onclick="copySession()">Copy Railway Variables</button>
     </section>
 
     <p class="github-link"><a href="https://github.com/amrelnahas05-wq/qr-bot" target="_blank" rel="noreferrer">github.com/amrelnahas05-wq/qr-bot</a></p>
@@ -106,6 +106,8 @@
       document.getElementById('qrBox').style.display = 'none';
       document.getElementById('codeBox').style.display = 'none';
       document.getElementById('sessionBox').style.display = 'none';
+      document.getElementById('sessionValue').style.display = 'block';
+      document.getElementById('copyBtn').style.display = 'inline-block';
     }
 
     async function startPairing() {
@@ -181,8 +183,31 @@
           document.getElementById('statusMsg').style.display = 'none';
           document.getElementById('qrBox').style.display = 'none';
           document.getElementById('codeBox').style.display = 'none';
-          const sessionParts = data.sessionParts || (data.sessionId ? [{ name: 'SESSION_ID', value: data.sessionId }] : []);
-          document.getElementById('sessionValue').textContent = sessionParts.map((part) => `${part.name}=${part.value}`).join('\n\n');
+          const delivery = data.delivery || {};
+          const sessionParts = data.sessionParts || [];
+          const heading = document.getElementById('sessionHeading');
+          const note = document.getElementById('sessionNote');
+          const value = document.getElementById('sessionValue');
+          const copyBtn = document.getElementById('copyBtn');
+
+          if (delivery.status === 'sent') {
+            heading.textContent = 'Paired successfully. Your Railway session variables were sent to this WhatsApp number.';
+            note.textContent = `Open your WhatsApp chat and copy all ${delivery.messageCount || ''} delivered messages into Railway’s Raw Editor. Keep them private and do not forward them.`;
+            value.textContent = '';
+            value.style.display = 'none';
+            copyBtn.style.display = 'none';
+          } else {
+            heading.textContent = delivery.status === 'failed'
+              ? 'Paired successfully, but WhatsApp delivery did not complete. Copy the recovery variables below:'
+              : 'Paired successfully. Add every variable below to Railway:';
+            note.textContent = delivery.status === 'failed'
+              ? `${delivery.error || 'The delivery failed.'} Use Railway’s Raw Editor to paste every recovery line below.`
+              : 'Use Railway’s Raw Editor to paste all lines, or create each variable separately. Keep every value private.';
+            value.textContent = sessionParts.map((part) => `${part.name}=${part.value}`).join('\n\n');
+            value.style.display = 'block';
+            copyBtn.style.display = 'inline-block';
+          }
+
           document.getElementById('sessionBox').style.display = 'block';
           document.getElementById('startBtn').textContent = 'Start New Session';
           document.getElementById('startBtn').disabled = false;

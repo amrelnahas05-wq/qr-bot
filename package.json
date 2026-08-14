@@ -4,7 +4,8 @@
   "description": "A local QR-based WhatsApp pairing server that produces a SESSION_ID.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node tests/phone-delivery.test.cjs"
   },
   "engines": {
     "node": ">=18"

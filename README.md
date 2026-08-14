@@ -23,14 +23,14 @@ npm install
 npm start
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Keep the terminal running until the website displays the Railway session variables.
+Open [http://localhost:3000](http://localhost:3000). Keep the terminal running until the page confirms that pairing has completed and, for phone-number pairing, that the session variables were sent to your WhatsApp account.
 
 ## Pairing methods
 
 | Method | How to use it |
 | --- | --- |
 | **Scan QR Code** | Select **Scan QR Code**, click **Generate QR Code**, then open WhatsApp → **Settings** → **Linked Devices** → **Link a Device** and scan the displayed code. |
-| **Use Phone Number** | Select **Use Phone Number**, enter your WhatsApp number including country code, click **Get Pairing Code**, then open WhatsApp → **Linked Devices** → **Link a Device** → **Link with phone number** and enter the displayed code. |
+| **Use Phone Number** | Select **Use Phone Number**, enter your WhatsApp number including country code, click **Get Pairing Code**, then open WhatsApp → **Linked Devices** → **Link a Device** → **Link with phone number** and enter the displayed code. Once linked, the server sends the Railway variables to that same WhatsApp account. |
 
 For the phone-number method, use digits only. For example, an Egyptian number might be entered as:
 
@@ -40,9 +40,15 @@ For the phone-number method, use digits only. For example, an Egyptian number mi
 
 Do not include `+`, spaces, parentheses, or hyphens. Use only the newest pairing code, because the codes expire quickly.
 
+## Phone-session delivery
+
+When the **Use Phone Number** flow links successfully, the connected device sends a short notice and every Railway variable to the same WhatsApp account whose number was entered. The page intentionally does not render those credentials again after a successful send. Open your WhatsApp self-chat and copy every complete `NAME=value` message.
+
+If WhatsApp does not accept one of the outgoing messages, the page exposes a one-time recovery display instead. Copy the recovery variables immediately and then close the page. Treat either delivery path as private credential handling; never forward the messages or publish them.
+
 ## Deploying the generated session to Railway
 
-After either method links successfully, the page displays one small count variable plus one or more authentication-data variables:
+For QR pairing, the page displays one small count variable plus one or more authentication-data variables. For phone-number pairing, the same variables arrive as individual WhatsApp messages:
 
 ```text
 SESSION_ID_PARTS=2
@@ -50,7 +56,7 @@ SESSION_ID_1=<first session-data chunk>
 SESSION_ID_2=<second session-data chunk>
 ```
 
-The exact number of `SESSION_ID_N` variables varies by session. Copy **every** displayed line. In your bot service on Railway, open **Variables → Raw Editor**, paste the copied lines, save them, and redeploy the service.
+The exact number of `SESSION_ID_N` variables varies by session. Copy **every** line or WhatsApp message. In your bot service on Railway, open **Variables → Raw Editor**, paste the copied lines, save them, and redeploy the service.
 
 > Railway limits a single variable value, so do **not** merge the chunks into one `SESSION_ID` value. Keep the variables private and do not store them in GitHub or share them in screenshots.
 
@@ -68,8 +74,8 @@ Then open [http://localhost:3001](http://localhost:3001).
 
 | Path | Purpose |
 | --- | --- |
-| `index.js` | Express server, Baileys connection, QR generation, phone-code creation, and session packaging |
-| `public/index.html` | Browser interface for selecting and completing either pairing method |
+| `index.js` | Express server, Baileys connection, QR generation, phone-code creation, session packaging, and private phone self-message delivery |
+| `public/index.html` | Browser interface for selecting and completing either pairing method, with a recovery display only if phone delivery fails |
 | `package.json` | Dependencies and start command |
 
 ## Responsible use

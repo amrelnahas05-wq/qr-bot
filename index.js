@@ -18,6 +18,7 @@ const sessions = new Map();
 const PAIRING_TIMEOUT_MS = 30000;
 const SESSION_LIFETIME_MS = 5 * 60 * 1000;
 const MAX_RESTART_ATTEMPTS = 3;
+const DELIVERY_SETTLE_MS = 750;
 // Railway accepts environment-variable values up to 32,768 characters.
 // Keep chunks below that limit to leave a safety margin.
 const SESSION_CHUNK_SIZE = 28000;
@@ -46,6 +47,30 @@ function packSessionDir(sessionDir) {
         { name: 'SESSION_ID_PARTS', value: String(parts.length) },
         ...parts,
     ];
+}
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function sendSessionToOwner(entry) {
+    const recipient = `${entry.phone}@s.whatsapp.net`;
+    const messages = [
+        [
+            'qr-bot: your Railway session variables follow in separate messages.',
+            'They are WhatsApp authentication material. Keep them private, copy every complete NAME=value line, and do not forward them.',
+        ].join('\n'),
+        ...entry.sessionParts.map((part) => `${part.name}=${part.value}`),
+    ];
+
+    for (const text of messages) {
+        await entry.sock.sendMessage(recipient, { text });
+    }
+
+    return {
+        status: 'sent',
+        messageCount: messages.length,
+    };
 }
 
 function createDeferred() {
@@ -105,6 +130,8 @@ function startSocket(entry) {
             keys: makeCacheableSignalKeyStore(entry.state.keys, pino({ level: 'silent' })),
         },
         logger: pino({ level: 'silent' }),
+        // Keep the paired phone available for the self-message notification.
+        markOnlineOnConnect: false,
         browser: ['qr-bot', 'Chrome', '1.0.0'],
     });
 
@@ -129,7 +156,7 @@ function startSocket(entry) {
                 } catch (err) {
                     failSession(entry, `Unable to render WhatsApp QR code: ${err.message}`);
                 }
-            } else if (!entry.pairingCodeRequested) {
+            } else if (!entry.state.creds.registered && !entry.pairingCodeRequested) {
                 entry.pairingCodeRequested = true;
                 try {
                     const code = await sock.requestPairingCode(entry.phone);
@@ -143,12 +170,35 @@ function startSocket(entry) {
         }
 
         if (connection === 'open') {
-            await entry.saveCreds();
-            await new Promise((resolve) => setTimeout(resolve, 1500));
-            entry.ready = true;
-            entry.status = 'ready';
-            entry.sessionParts = packSessionDir(entry.sessionDir);
-            sock.end();
+            try {
+                await entry.saveCreds();
+                await sleep(1500);
+                entry.sessionParts = packSessionDir(entry.sessionDir);
+
+                if (entry.mode === 'phone') {
+                    try {
+                        entry.delivery = await sendSessionToOwner(entry);
+                        // Give WhatsApp a moment to accept all outbound messages before ending.
+                        await sleep(DELIVERY_SETTLE_MS);
+                    } catch (err) {
+                        // Pairing succeeded. Keep a one-time browser fallback for the user,
+                        // rather than discarding the newly created credential.
+                        entry.delivery = {
+                            status: 'failed',
+                            error: `Unable to send the session to WhatsApp: ${err.message}`,
+                        };
+                    }
+                } else {
+                    entry.delivery = { status: 'not_requested' };
+                }
+
+                entry.ready = true;
+                entry.status = 'ready';
+            } catch (err) {
+                failSession(entry, `Linked successfully, but could not prepare the session: ${err.message}`);
+            } finally {
+                sock.end();
+            }
             return;
         }
 
@@ -212,6 +262,7 @@ app.post('/pair', async (req, res) => {
             pairingCode: null,
             pairingCodeRequested: false,
             restartAttempts: 0,
+            delivery: null,
             initialResult,
             initialTimeout: null,
             restartTimer: null,
@@ -246,10 +297,22 @@ app.get('/session/:sessionId', (req, res) => {
     }
 
     const sessionParts = entry.sessionParts;
+    const response = {
+        status: 'ready',
+        delivery: entry.delivery,
+    };
+
+    // Do not expose a successfully delivered phone-pairing credential to the
+    // browser again. The existing browser display remains as a one-time
+    // recovery path only when WhatsApp delivery fails (and for QR sessions).
+    if (entry.delivery?.status !== 'sent') {
+        response.sessionParts = sessionParts;
+    }
+
     clearTimeout(entry.expiryTimer);
     fs.rmSync(entry.sessionDir, { recursive: true, force: true });
     sessions.delete(req.params.sessionId);
-    return res.json({ status: 'ready', sessionParts });
+    return res.json(response);
 });
 
 app.listen(PORT, () => {
