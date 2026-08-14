@@ -32,6 +32,7 @@ const baileys = {
         version: [2, 3000, 1045204510],
         isLatest: true,
     }),
+    jidNormalizedUser: (jid) => String(jid || '').replace(/:\d+(?=@)/, ''),
 };
 
 function fakeRequire(name) {
@@ -45,10 +46,12 @@ function fakeRequire(name) {
 
 let source = fs.readFileSync(path.join(repoRoot, 'index.js'), 'utf8');
 assert.match(source, /browser: \['Mac OS', 'Chrome', '120\.0\.0'\]/);
-assert.doesNotMatch(source, /browser: \['qr-bot', 'Chrome'/);
+assert.doesNotMatch(source, /requestPairingCode/);
+assert.doesNotMatch(source, /mode === 'phone'/);
+assert.match(source, /jidNormalizedUser\(entry\.sock\.user\?\.id\)/);
 source = source.replace(
     /app\.listen\(PORT, \(\) => \{[\s\S]*?\}\);\s*$/,
-    'module.exports = { sendSessionToOwner, sessions, formatPairingCodeError, getCurrentWaWebVersion, formatConnectionCloseError };\n',
+    'module.exports = { sendSessionToOwner, sessions, getCurrentWaWebVersion, formatConnectionCloseError };\n',
 );
 
 const sandbox = {
@@ -67,7 +70,6 @@ vm.runInNewContext(source, sandbox, { filename: 'index.js' });
 const {
     sendSessionToOwner,
     sessions,
-    formatPairingCodeError,
     getCurrentWaWebVersion,
     formatConnectionCloseError,
 } = sandbox.module.exports;
@@ -82,25 +84,38 @@ async function invokeSessionEndpoint(entry) {
     return response;
 }
 
-(async () => {
-    assert.match(
-        formatPairingCodeError(new Error('IQ error 400 bad-request')),
-        /request a fresh code/i,
+async function invokePairEndpoint(body) {
+    let statusCode = 200;
+    let payload;
+    await handlers.post['/pair'](
+        { body },
+        {
+            status(code) { statusCode = code; return this; },
+            json(value) { payload = value; return value; },
+        },
     );
+    return { statusCode, payload };
+}
+
+(async () => {
     assert.deepEqual(
         await getCurrentWaWebVersion(),
         [2, 3000, 1045204510],
     );
     assert.match(formatConnectionCloseError(405), /Web handshake \(405\)/);
 
+    const phoneMode = await invokePairEndpoint({ mode: 'phone' });
+    assert.strictEqual(phoneMode.statusCode, 400);
+    assert.match(phoneMode.payload.error, /disabled/i);
+
     const outbound = [];
     const delivery = await sendSessionToOwner({
-        phone: '201060715493',
         sessionParts: [
             { name: 'SESSION_ID_PARTS', value: '2' },
             { name: 'SESSION_ID_1', value: 'private-chunk' },
         ],
         sock: {
+            user: { id: '201060715493:4@s.whatsapp.net' },
             async sendMessage(jid, content) {
                 outbound.push({ jid, content });
             },
@@ -130,22 +145,24 @@ async function invokeSessionEndpoint(entry) {
         delivery: { status: 'sent', messageCount: 3 },
     });
 
-    const fallbackDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qr-bot-fallback-'));
-    const fallbackParts = [{ name: 'SESSION_ID_1', value: 'recovery-value' }];
-    const fallbackResponse = await invokeSessionEndpoint({
-        id: 'fallback-session',
+    const failedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qr-bot-failed-'));
+    const failedResponse = await invokeSessionEndpoint({
+        id: 'failed-session',
         ready: true,
         delivery: { status: 'failed', error: 'offline' },
-        sessionParts: fallbackParts,
-        sessionDir: fallbackDir,
+        sessionParts: [{ name: 'SESSION_ID_1', value: 'never-return-this' }],
+        sessionDir: failedDir,
     });
-    assert.deepEqual(fallbackResponse, {
+    assert.deepEqual(failedResponse, {
         status: 'ready',
         delivery: { status: 'failed', error: 'offline' },
-        sessionParts: fallbackParts,
     });
 
-    console.log('phone-delivery tests passed');
+    const page = fs.readFileSync(path.join(repoRoot, 'public', 'index.html'), 'utf8');
+    assert.doesNotMatch(page, /sessionParts|sessionValue|copySession|Copy Railway Variables/);
+    assert.doesNotMatch(page, /Use Phone Number|phoneInput|requestPairingCode/);
+
+    console.log('QR delivery tests passed');
 })().catch((error) => {
     console.error(error);
     process.exitCode = 1;

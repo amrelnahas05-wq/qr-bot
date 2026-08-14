@@ -3,37 +3,24 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>qr-bot | WhatsApp Pairing</title>
+  <title>qr-bot | QR Session Delivery</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: "Segoe UI", sans-serif; background: #0d0d0d; color: #f0f0f0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
     .card { width: 100%; max-width: 500px; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 16px; padding: 36px; text-align: center; }
-    .logo { font-size: 2.4rem; margin-bottom: 8px; }
     h1 { font-size: 1.55rem; color: #25d366; margin-bottom: 8px; }
     .subtitle { color: #9a9a9a; font-size: .92rem; line-height: 1.5; margin-bottom: 24px; }
-    .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; }
-    .tab { padding: 12px 10px; border: 1px solid #333; border-radius: 10px; background: #111; color: #bbb; font-weight: 700; cursor: pointer; }
-    .tab.active { border-color: #25d366; background: #12351f; color: #25d366; }
-    .guide { text-align: left; min-height: 138px; border-radius: 10px; background: #111; color: #aaa; padding: 16px 18px; margin-bottom: 18px; font-size: .88rem; line-height: 1.8; }
+    .guide { text-align: left; border-radius: 10px; background: #111; color: #aaa; padding: 16px 18px; margin-bottom: 18px; font-size: .88rem; line-height: 1.8; }
     .guide b { color: #ddd; }
-    .phone-panel { display: none; text-align: left; margin-bottom: 14px; }
-    label { display: block; font-size: .82rem; color: #aaa; margin-bottom: 7px; }
-    input { width: 100%; padding: 13px 14px; border-radius: 10px; border: 1px solid #383838; background: #111; color: #f0f0f0; font-size: 1rem; outline: none; }
-    input:focus { border-color: #25d366; }
     button { width: 100%; padding: 14px; background: #25d366; color: #000; border: none; border-radius: 10px; font-size: 1rem; font-weight: 800; cursor: pointer; }
     button:disabled { background: #1a5c33; color: #777; cursor: not-allowed; }
     .error { min-height: 20px; color: #ff6464; font-size: .88rem; margin-top: 12px; }
     .status { display: none; color: #aaa; font-size: .88rem; line-height: 1.5; margin: 14px 0 0; }
-    .qr-box, .code-box, .session-box { display: none; margin-top: 20px; border-radius: 12px; padding: 18px; }
+    .qr-box, .success-box { display: none; margin-top: 20px; border-radius: 12px; padding: 18px; }
     .qr-box { background: #fff; }
     .qr-box img { display: block; width: 100%; max-width: 360px; margin: auto; }
-    .code-box { background: #111; border: 1px solid #25d366; }
-    .box-label { color: #999; font-size: .82rem; line-height: 1.45; margin-bottom: 12px; }
-    .code-value { color: #25d366; font-family: monospace; font-weight: 800; font-size: 2rem; letter-spacing: 5px; }
-    .code-hint { color: #777; font-size: .78rem; line-height: 1.5; margin-top: 12px; }
-    .session-box { background: #111; border: 1px solid #ffd700; }
-    .session-value { background: #0d0d0d; border-radius: 8px; color: #ffd700; font-family: monospace; font-size: .72rem; line-height: 1.55; max-height: 130px; overflow-y: auto; padding: 10px; text-align: left; word-break: break-all; margin: 12px 0; }
-    .copy-btn { background: #ffd700; width: auto; padding: 10px 18px; font-size: .88rem; }
+    .success-box { background: #102919; border: 1px solid #25d366; color: #d8f8e1; line-height: 1.6; font-size: .9rem; }
+    .success-box strong { color: #25d366; }
     .github-link { margin-top: 25px; color: #5d5d5d; font-size: .8rem; }
     .github-link a { color: #8c8c8c; text-decoration: none; }
     @media (max-width: 520px) { .card { padding: 28px 20px; } }
@@ -41,20 +28,15 @@
 </head>
 <body>
   <main class="card">
-    <div class="logo">🤖</div>
     <h1>qr-bot</h1>
-    <p class="subtitle">Connect your WhatsApp account and create private Railway session variables.</p>
+    <p class="subtitle">Link WhatsApp by QR code. Your Railway session variables are delivered privately in WhatsApp, never on this page.</p>
 
-    <div class="tabs" role="tablist" aria-label="Pairing method">
-      <button class="tab active" id="qrTab" type="button" onclick="setMode('qr')">Scan QR Code</button>
-      <button class="tab" id="phoneTab" type="button" onclick="setMode('phone')">Use Phone Number</button>
-    </div>
-
-    <div class="guide" id="guideText"></div>
-
-    <div class="phone-panel" id="phonePanel">
-      <label for="phoneInput">WhatsApp number with country code</label>
-      <input id="phoneInput" type="tel" autocomplete="tel" placeholder="Example: 201060715493" />
+    <div class="guide">
+      <b>QR session method:</b><br>
+      1. Click <b>Generate QR Code</b>.<br>
+      2. In WhatsApp, open <b>Settings → Linked Devices</b>.<br>
+      3. Tap <b>Link a Device</b> and scan the QR code.<br>
+      4. Open your WhatsApp chat to receive the private Railway session messages.
     </div>
 
     <button id="startBtn" type="button" onclick="startPairing()">Generate QR Code</button>
@@ -62,117 +44,66 @@
     <p class="status" id="statusMsg"></p>
 
     <section class="qr-box" id="qrBox"><img id="qrImage" alt="WhatsApp pairing QR code" /></section>
-
-    <section class="code-box" id="codeBox">
-      <div class="box-label">In WhatsApp, choose <b>Linked Devices → Link a Device → Link with phone number</b>, then enter this code.</div>
-      <div class="code-value" id="codeValue">----</div>
-      <div class="code-hint">Use the newest code promptly. The code is only valid for a short time.</div>
-    </section>
-
-    <section class="session-box" id="sessionBox">
-      <div id="sessionHeading">Paired successfully. Add every variable below to Railway:</div>
-      <div class="box-label" id="sessionNote">Use Railway's <b>Raw Editor</b> to paste all lines, or create each variable separately. Keep every value private.</div>
-      <div class="session-value" id="sessionValue"></div>
-      <button class="copy-btn" id="copyBtn" type="button" onclick="copySession()">Copy Railway Variables</button>
+    <section class="success-box" id="successBox">
+      <strong>Paired successfully.</strong><br>
+      The Railway session variables were sent to the WhatsApp account that scanned this QR code. Open your WhatsApp chat and copy every complete message into Railway’s Raw Editor. Keep the messages private.
     </section>
 
     <p class="github-link"><a href="https://github.com/amrelnahas05-wq/qr-bot" target="_blank" rel="noreferrer">github.com/amrelnahas05-wq/qr-bot</a></p>
   </main>
 
   <script>
-    let mode = 'qr';
     let currentSession = '';
     let pollInterval = null;
-
-    const guides = {
-      qr: '<b>QR method:</b><br>1. Click <b>Generate QR Code</b>.<br>2. In WhatsApp, open <b>Settings → Linked Devices</b>.<br>3. Tap <b>Link a Device</b> and scan the code.<br>4. Keep this page open until your SESSION_ID appears.',
-      phone: '<b>Phone-number method:</b><br>1. Enter your WhatsApp number with country code.<br>2. Click <b>Get Pairing Code</b>.<br>3. In WhatsApp, open <b>Linked Devices → Link a Device → Link with phone number</b>.<br>4. Enter the displayed code and wait for your SESSION_ID.'
-    };
-
-    function setMode(nextMode) {
-      if (pollInterval) return;
-      mode = nextMode;
-      document.getElementById('qrTab').classList.toggle('active', mode === 'qr');
-      document.getElementById('phoneTab').classList.toggle('active', mode === 'phone');
-      document.getElementById('phonePanel').style.display = mode === 'phone' ? 'block' : 'none';
-      document.getElementById('guideText').innerHTML = guides[mode];
-      document.getElementById('startBtn').textContent = mode === 'qr' ? 'Generate QR Code' : 'Get Pairing Code';
-      document.getElementById('errorMsg').textContent = '';
-    }
 
     function resetOutput() {
       document.getElementById('errorMsg').textContent = '';
       document.getElementById('statusMsg').style.display = 'none';
       document.getElementById('qrBox').style.display = 'none';
-      document.getElementById('codeBox').style.display = 'none';
-      document.getElementById('sessionBox').style.display = 'none';
-      document.getElementById('sessionValue').style.display = 'block';
-      document.getElementById('copyBtn').style.display = 'inline-block';
+      document.getElementById('successBox').style.display = 'none';
     }
 
     async function startPairing() {
-      const btn = document.getElementById('startBtn');
+      const button = document.getElementById('startBtn');
       const errorEl = document.getElementById('errorMsg');
-      const phone = document.getElementById('phoneInput').value.replace(/[^0-9]/g, '');
       resetOutput();
-
-      if (mode === 'phone' && phone.length < 7) {
-        errorEl.textContent = 'Enter your WhatsApp number with country code, using digits only.';
-        return;
-      }
-
-      btn.disabled = true;
-      btn.textContent = mode === 'qr' ? 'Generating QR Code...' : 'Requesting Pairing Code...';
+      button.disabled = true;
+      button.textContent = 'Generating QR Code...';
 
       try {
-        const res = await fetch('/pair', {
+        const response = await fetch('/pair', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode, phone }),
+          body: JSON.stringify({ mode: 'qr' }),
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Could not start pairing.');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not start QR pairing.');
 
         currentSession = data.sessionId;
+        document.getElementById('qrImage').src = data.qr;
+        document.getElementById('qrBox').style.display = 'block';
         const status = document.getElementById('statusMsg');
-        status.textContent = mode === 'qr' ? 'Scan the QR code with WhatsApp. The code will refresh automatically if needed.' : 'Enter the pairing code in WhatsApp. Keep this page open while it links.';
+        status.textContent = 'Scan the QR code with WhatsApp. It refreshes automatically if WhatsApp requests a restart.';
         status.style.display = 'block';
-
-        if (data.type === 'qr') {
-          document.getElementById('qrImage').src = data.qr;
-          document.getElementById('qrBox').style.display = 'block';
-          btn.textContent = 'QR Code Active';
-        } else {
-          document.getElementById('codeValue').textContent = data.code;
-          document.getElementById('codeBox').style.display = 'block';
-          btn.textContent = 'Pairing Code Active';
-        }
-
+        button.textContent = 'QR Code Active';
         pollInterval = setInterval(pollSession, 2000);
-      } catch (err) {
-        errorEl.textContent = err.message || 'Network error. Is the server running?';
-        btn.disabled = false;
-        btn.textContent = mode === 'qr' ? 'Generate QR Code' : 'Get Pairing Code';
+      } catch (error) {
+        errorEl.textContent = error.message || 'Network error. Is the server running?';
+        button.disabled = false;
+        button.textContent = 'Generate QR Code';
       }
     }
 
     async function pollSession() {
       try {
-        const res = await fetch(`/session/${currentSession}`);
-        const data = await res.json();
+        const response = await fetch(`/session/${currentSession}`);
+        const data = await response.json();
 
         if (data.status === 'pending') {
-          const status = document.getElementById('statusMsg');
-          if (mode === 'qr' && data.qr) {
+          if (data.qr) {
             const image = document.getElementById('qrImage');
             if (image.src !== data.qr) image.src = data.qr;
             document.getElementById('qrBox').style.display = 'block';
-            status.textContent = 'Scan the current QR code with WhatsApp. It refreshes automatically if WhatsApp requests a restart.';
-          }
-          if (mode === 'phone' && data.code) {
-            document.getElementById('codeValue').textContent = data.code;
-            document.getElementById('codeBox').style.display = 'block';
-            status.textContent = 'Enter the newest pairing code in WhatsApp. The code refreshes automatically if WhatsApp requests a restart.';
           }
           return;
         }
@@ -182,33 +113,7 @@
           pollInterval = null;
           document.getElementById('statusMsg').style.display = 'none';
           document.getElementById('qrBox').style.display = 'none';
-          document.getElementById('codeBox').style.display = 'none';
-          const delivery = data.delivery || {};
-          const sessionParts = data.sessionParts || [];
-          const heading = document.getElementById('sessionHeading');
-          const note = document.getElementById('sessionNote');
-          const value = document.getElementById('sessionValue');
-          const copyBtn = document.getElementById('copyBtn');
-
-          if (delivery.status === 'sent') {
-            heading.textContent = 'Paired successfully. Your Railway session variables were sent to this WhatsApp number.';
-            note.textContent = `Open your WhatsApp chat and copy all ${delivery.messageCount || ''} delivered messages into Railway’s Raw Editor. Keep them private and do not forward them.`;
-            value.textContent = '';
-            value.style.display = 'none';
-            copyBtn.style.display = 'none';
-          } else {
-            heading.textContent = delivery.status === 'failed'
-              ? 'Paired successfully, but WhatsApp delivery did not complete. Copy the recovery variables below:'
-              : 'Paired successfully. Add every variable below to Railway:';
-            note.textContent = delivery.status === 'failed'
-              ? `${delivery.error || 'The delivery failed.'} Use Railway’s Raw Editor to paste every recovery line below.`
-              : 'Use Railway’s Raw Editor to paste all lines, or create each variable separately. Keep every value private.';
-            value.textContent = sessionParts.map((part) => `${part.name}=${part.value}`).join('\n\n');
-            value.style.display = 'block';
-            copyBtn.style.display = 'inline-block';
-          }
-
-          document.getElementById('sessionBox').style.display = 'block';
+          document.getElementById('successBox').style.display = 'block';
           document.getElementById('startBtn').textContent = 'Start New Session';
           document.getElementById('startBtn').disabled = false;
           return;
@@ -218,25 +123,14 @@
           clearInterval(pollInterval);
           pollInterval = null;
           document.getElementById('statusMsg').style.display = 'none';
-          document.getElementById('errorMsg').textContent = data.error || 'The pairing session expired. Request a new code.';
-          document.getElementById('startBtn').textContent = mode === 'qr' ? 'Generate QR Code' : 'Get Pairing Code';
+          document.getElementById('errorMsg').textContent = data.error || 'The QR pairing session expired. Generate a new QR code.';
+          document.getElementById('startBtn').textContent = 'Generate QR Code';
           document.getElementById('startBtn').disabled = false;
         }
       } catch (_) {
         // Keep polling during transient browser or network errors.
       }
     }
-
-    function copySession() {
-      const text = document.getElementById('sessionValue').textContent;
-      navigator.clipboard.writeText(text).then(() => {
-        const btn = document.querySelector('.copy-btn');
-        btn.textContent = 'Copied!';
-        setTimeout(() => { btn.textContent = 'Copy Railway Variables'; }, 2000);
-      });
-    }
-
-    setMode('qr');
   </script>
 </body>
 </html>

@@ -10,6 +10,7 @@ const {
     makeCacheableSignalKeyStore,
     DisconnectReason,
     fetchLatestWaWebVersion,
+    jidNormalizedUser,
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 
@@ -20,6 +21,7 @@ const PAIRING_TIMEOUT_MS = 30000;
 const SESSION_LIFETIME_MS = 5 * 60 * 1000;
 const MAX_RESTART_ATTEMPTS = 3;
 const DELIVERY_SETTLE_MS = 750;
+const DELIVERY_MAX_ATTEMPTS = 3;
 // Railway accepts environment-variable values up to 32,768 characters.
 // Keep chunks below that limit to leave a safety margin.
 const SESSION_CHUNK_SIZE = 28000;
@@ -28,10 +30,6 @@ let waWebVersionRequest = null;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-
-function cleanPhone(phone) {
-    return String(phone || '').replace(/[^0-9]/g, '');
-}
 
 function packSessionDir(sessionDir) {
     const zip = new AdmZip();
@@ -54,16 +52,6 @@ function packSessionDir(sessionDir) {
 
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function formatPairingCodeError(error) {
-    const detail = error?.message || String(error);
-
-    if (/bad-request|\b400\b/i.test(detail)) {
-        return 'WhatsApp rejected the pairing registration before issuing a usable code. Confirm the number is in international digits-only format, wait a minute, then request a fresh code.';
-    }
-
-    return `Unable to request a WhatsApp pairing code: ${detail}`;
 }
 
 async function getCurrentWaWebVersion() {
@@ -97,7 +85,14 @@ function formatConnectionCloseError(reason) {
 }
 
 async function sendSessionToOwner(entry) {
-    const recipient = `${entry.phone}@s.whatsapp.net`;
+    // sock.user.id includes a device suffix after QR pairing. Baileys' helper
+    // removes that suffix without guessing the phone number, leaving the
+    // linked account's private WhatsApp JID.
+    const recipient = jidNormalizedUser(entry.sock.user?.id);
+    if (!recipient) {
+        throw new Error('WhatsApp did not provide the linked account identity.');
+    }
+
     const messages = [
         [
             'qr-bot: your Railway session variables follow in separate messages.',
@@ -107,7 +102,19 @@ async function sendSessionToOwner(entry) {
     ];
 
     for (const text of messages) {
-        await entry.sock.sendMessage(recipient, { text });
+        let sent = false;
+        let lastError;
+        for (let attempt = 1; attempt <= DELIVERY_MAX_ATTEMPTS; attempt += 1) {
+            try {
+                await entry.sock.sendMessage(recipient, { text });
+                sent = true;
+                break;
+            } catch (error) {
+                lastError = error;
+                if (attempt < DELIVERY_MAX_ATTEMPTS) await sleep(500 * attempt);
+            }
+        }
+        if (!sent) throw lastError || new Error('WhatsApp did not accept the session message.');
     }
 
     return {
@@ -182,10 +189,10 @@ async function startSocket(entry) {
             keys: makeCacheableSignalKeyStore(entry.state.keys, pino({ level: 'silent' })),
         },
         logger: pino({ level: 'silent' }),
-        // Keep the paired phone available for the self-message notification.
+        // Keep the linked phone available to receive the self-message.
         markOnlineOnConnect: false,
-        // Phone pairing is stricter than QR pairing: use WhatsApp's canonical
-        // browser/OS tuple rather than the application label in browser[0].
+        // Use WhatsApp's canonical browser/OS tuple rather than an application
+        // label in browser[0].
         browser: ['Mac OS', 'Chrome', '120.0.0'],
     };
     if (latestWaWebVersion) socketConfig.version = latestWaWebVersion;
@@ -201,28 +208,13 @@ async function startSocket(entry) {
 
         const { connection, qr, lastDisconnect } = update;
 
-        // Both modes wait for this QR/handshake update before producing their
-        // first credential. Phone pairing needs this delay before requesting a
-        // code; a premature request can cause the socket to close.
         if (qr) {
-            if (entry.mode === 'qr') {
-                try {
-                    entry.qr = await QRCode.toDataURL(qr, { margin: 2, width: 360 });
-                    clearTimeout(entry.initialTimeout);
-                    entry.initialResult.resolve({ type: 'qr', qr: entry.qr });
-                } catch (err) {
-                    failSession(entry, `Unable to render WhatsApp QR code: ${err.message}`);
-                }
-            } else if (!entry.state.creds.registered && !entry.pairingCodeRequested) {
-                entry.pairingCodeRequested = true;
-                try {
-                    const code = await sock.requestPairingCode(entry.phone);
-                    entry.pairingCode = code.match(/.{1,4}/g).join('-');
-                    clearTimeout(entry.initialTimeout);
-                    entry.initialResult.resolve({ type: 'phone', code: entry.pairingCode });
-                } catch (err) {
-                    failSession(entry, formatPairingCodeError(err));
-                }
+            try {
+                entry.qr = await QRCode.toDataURL(qr, { margin: 2, width: 360 });
+                clearTimeout(entry.initialTimeout);
+                entry.initialResult.resolve({ type: 'qr', qr: entry.qr });
+            } catch (err) {
+                failSession(entry, `Unable to render WhatsApp QR code: ${err.message}`);
             }
         }
 
@@ -231,23 +223,9 @@ async function startSocket(entry) {
                 await entry.saveCreds();
                 await sleep(1500);
                 entry.sessionParts = packSessionDir(entry.sessionDir);
-
-                if (entry.mode === 'phone') {
-                    try {
-                        entry.delivery = await sendSessionToOwner(entry);
-                        // Give WhatsApp a moment to accept all outbound messages before ending.
-                        await sleep(DELIVERY_SETTLE_MS);
-                    } catch (err) {
-                        // Pairing succeeded. Keep a one-time browser fallback for the user,
-                        // rather than discarding the newly created credential.
-                        entry.delivery = {
-                            status: 'failed',
-                            error: `Unable to send the session to WhatsApp: ${err.message}`,
-                        };
-                    }
-                } else {
-                    entry.delivery = { status: 'not_requested' };
-                }
+                entry.delivery = await sendSessionToOwner(entry);
+                // Give WhatsApp a moment to accept all outbound messages before ending.
+                await sleep(DELIVERY_SETTLE_MS);
 
                 entry.ready = true;
                 entry.status = 'ready';
@@ -270,8 +248,6 @@ async function startSocket(entry) {
                 entry.status = 'pending';
                 entry.error = null;
                 entry.qr = null;
-                entry.pairingCode = null;
-                entry.pairingCodeRequested = false;
                 entry.restartTimer = setTimeout(() => startSocket(entry), 500);
                 return;
             }
@@ -299,15 +275,12 @@ async function startSocket(entry) {
 }
 
 app.post('/pair', async (req, res) => {
-    const mode = req.body?.mode;
-    const phone = cleanPhone(req.body?.phone);
+    const requestedMode = req.body?.mode;
 
-    if (!['qr', 'phone'].includes(mode)) {
-        return res.status(400).json({ error: 'Choose either QR code or phone-number pairing.' });
+    if (requestedMode && requestedMode !== 'qr') {
+        return res.status(400).json({ error: 'Phone-number pairing is disabled. Scan the QR code with WhatsApp.' });
     }
-    if (mode === 'phone' && phone.length < 7) {
-        return res.status(400).json({ error: 'Enter your WhatsApp number with country code, using digits only.' });
-    }
+    const mode = 'qr';
 
     const sessionId = crypto.randomUUID();
     const sessionDir = path.join(__dirname, 'temp_sessions', sessionId);
@@ -322,15 +295,12 @@ app.post('/pair', async (req, res) => {
             saveCreds,
             sessionDir,
             mode,
-            phone,
             sock: null,
             ready: false,
             status: 'pending',
             error: null,
             sessionParts: null,
             qr: null,
-            pairingCode: null,
-            pairingCodeRequested: false,
             restartAttempts: 0,
             versionRefreshAttempts: 0,
             delivery: null,
@@ -342,7 +312,7 @@ app.post('/pair', async (req, res) => {
 
         sessions.set(sessionId, entry);
         entry.initialTimeout = setTimeout(() => {
-            failSession(entry, `Timed out waiting for WhatsApp ${mode === 'qr' ? 'QR code' : 'pairing code'}`);
+            failSession(entry, 'Timed out waiting for a WhatsApp QR code.');
         }, PAIRING_TIMEOUT_MS);
         entry.expiryTimer = setTimeout(() => disposeSession(sessionId), SESSION_LIFETIME_MS);
 
@@ -351,7 +321,7 @@ app.post('/pair', async (req, res) => {
         return res.json({ sessionId, mode, ...result });
     } catch (err) {
         disposeSession(sessionId);
-        return res.status(500).json({ error: `Failed to generate ${mode === 'qr' ? 'QR' : 'pairing'} code: ${err.message}` });
+        return res.status(500).json({ error: `Failed to generate QR code: ${err.message}` });
     }
 });
 
@@ -362,24 +332,17 @@ app.get('/session/:sessionId', (req, res) => {
     if (!entry.ready) {
         return res.json({
             status: 'pending',
-            qr: entry.mode === 'qr' ? entry.qr : null,
-            code: entry.mode === 'phone' ? entry.pairingCode : null,
+            qr: entry.qr || null,
         });
     }
 
-    const sessionParts = entry.sessionParts;
     const response = {
         status: 'ready',
         delivery: entry.delivery,
     };
 
-    // Do not expose a successfully delivered phone-pairing credential to the
-    // browser again. The existing browser display remains as a one-time
-    // recovery path only when WhatsApp delivery fails (and for QR sessions).
-    if (entry.delivery?.status !== 'sent') {
-        response.sessionParts = sessionParts;
-    }
-
+    // Credentials are delivered only to the linked account in WhatsApp and
+    // are never returned to, stored in, or rendered by the browser response.
     clearTimeout(entry.expiryTimer);
     fs.rmSync(entry.sessionDir, { recursive: true, force: true });
     sessions.delete(req.params.sessionId);
