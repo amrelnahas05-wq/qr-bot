@@ -1,6 +1,6 @@
 # qr-bot
 
-`qr-bot` is a local WhatsApp QR-pairing server that creates Railway-compatible session variables after you link **your own** WhatsApp account. After the QR code is scanned, it sends the generated variables privately to the WhatsApp account that scanned it. The browser never displays or returns the session values.
+`qr-bot` is a local WhatsApp QR-pairing server that creates Railway-compatible session variables after you link **your own** WhatsApp account. After the QR code is scanned, it attempts to send the generated variables privately to the WhatsApp account that scanned it and returns a one-time browser view as a practical recovery path. The browser displays each session variable separately, with an independent copy button.
 
 > **Security notice:** A generated `SESSION_ID` contains WhatsApp authentication material. Treat it like a password. Do not put it in GitHub, screenshots, chat messages, or any public location.
 
@@ -29,13 +29,13 @@ Open [http://localhost:3000](http://localhost:3000). Keep the terminal running u
 
 Click **Generate QR Code**, then open WhatsApp and go to **Settings → Linked Devices → Link a Device**. Scan the displayed QR code with the WhatsApp account that should receive the session.
 
-Once WhatsApp opens the linked session, `qr-bot` packages the authentication files and sends a private notice plus every Railway variable to that account’s own WhatsApp chat. The browser only confirms success; it does not show, copy, store, or provide a recovery view of the credential.
+Once WhatsApp opens the linked session, `qr-bot` packages the authentication files and attempts to send a private notice plus every Railway variable to that account’s own WhatsApp chat. At the same time, the pairing page presents a **one-time** recovery view: every `SESSION_ID_PARTS` or `SESSION_ID_N` variable appears in its own compact card, with its own copy button.
 
-If delivery fails, no session data is exposed in the browser. Generate and scan a new QR code after resolving the WhatsApp connection issue.
+If WhatsApp delivery fails, use the same individual browser cards. Copy every complete `NAME=value` variable into Railway’s Raw Editor before you leave or refresh the page. The temporary server files and the one-time session response are then removed.
 
 ## Deploying the generated session to Railway
 
-The WhatsApp messages contain a small count variable followed by one or more authentication-data variables:
+The WhatsApp messages and one-time browser cards contain a small count variable followed by one or more authentication-data variables:
 
 ```text
 SESSION_ID_PARTS=2
@@ -62,7 +62,7 @@ Then open [http://localhost:3001](http://localhost:3001).
 | Path | Purpose |
 | --- | --- |
 | `index.js` | Express server, QR generation, WhatsApp connection, session packaging, and private self-message delivery |
-| `public/index.html` | QR-only browser interface that does not render session values |
+| `public/index.html` | QR-only browser interface that renders each one-time session variable in a separate copyable card |
 | `package.json` | Dependencies, runtime requirement, and start command |
 
 ## Responsible use

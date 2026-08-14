@@ -143,6 +143,7 @@ async function invokePairEndpoint(body) {
     assert.deepEqual(sentResponse, {
         status: 'ready',
         delivery: { status: 'sent', messageCount: 3 },
+        sessionParts: [{ name: 'SESSION_ID_1', value: 'must-not-be-returned' }],
     });
 
     const failedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qr-bot-failed-'));
@@ -156,13 +157,17 @@ async function invokePairEndpoint(body) {
     assert.deepEqual(failedResponse, {
         status: 'ready',
         delivery: { status: 'failed', error: 'offline' },
+        sessionParts: [{ name: 'SESSION_ID_1', value: 'never-return-this' }],
     });
 
     const page = fs.readFileSync(path.join(repoRoot, 'public', 'index.html'), 'utf8');
-    assert.doesNotMatch(page, /sessionParts|sessionValue|copySession|Copy Railway Variables/);
+    assert.match(page, /function renderSessionParts/);
+    assert.match(page, /function copyText/);
+    assert.match(page, /Copy \$\{part\.name\}/);
+    assert.match(page, /part-card/);
     assert.doesNotMatch(page, /Use Phone Number|phoneInput|requestPairingCode/);
 
-    console.log('QR delivery tests passed');
+    console.log('QR chunk display tests passed');
 })().catch((error) => {
     console.error(error);
     process.exitCode = 1;

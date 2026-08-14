@@ -7,7 +7,7 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: "Segoe UI", sans-serif; background: #0d0d0d; color: #f0f0f0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-    .card { width: 100%; max-width: 500px; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 16px; padding: 36px; text-align: center; }
+    .card { width: 100%; max-width: 720px; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 16px; padding: 36px; text-align: center; }
     h1 { font-size: 1.55rem; color: #25d366; margin-bottom: 8px; }
     .subtitle { color: #9a9a9a; font-size: .92rem; line-height: 1.5; margin-bottom: 24px; }
     .guide { text-align: left; border-radius: 10px; background: #111; color: #aaa; padding: 16px 18px; margin-bottom: 18px; font-size: .88rem; line-height: 1.8; }
@@ -16,27 +16,34 @@
     button:disabled { background: #1a5c33; color: #777; cursor: not-allowed; }
     .error { min-height: 20px; color: #ff6464; font-size: .88rem; margin-top: 12px; }
     .status { display: none; color: #aaa; font-size: .88rem; line-height: 1.5; margin: 14px 0 0; }
-    .qr-box, .success-box { display: none; margin-top: 20px; border-radius: 12px; padding: 18px; }
+    .qr-box, .session-box { display: none; margin-top: 20px; border-radius: 12px; padding: 18px; }
     .qr-box { background: #fff; }
     .qr-box img { display: block; width: 100%; max-width: 360px; margin: auto; }
-    .success-box { background: #102919; border: 1px solid #25d366; color: #d8f8e1; line-height: 1.6; font-size: .9rem; }
-    .success-box strong { color: #25d366; }
+    .session-box { background: #111; border: 1px solid #ffd700; text-align: left; }
+    .session-box h2 { color: #ffd700; font-size: 1.05rem; margin-bottom: 8px; }
+    .session-note { color: #aaa; font-size: .84rem; line-height: 1.55; margin-bottom: 14px; }
+    .session-parts { display: grid; gap: 12px; }
+    .part-card { background: #191919; border: 1px solid #343434; border-radius: 10px; overflow: hidden; }
+    .part-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #343434; }
+    .part-name { color: #ffd700; font-family: monospace; font-size: .88rem; font-weight: 800; overflow-wrap: anywhere; }
+    .copy-part { width: auto; flex: 0 0 auto; padding: 7px 10px; border-radius: 7px; background: #ffd700; color: #111; font-size: .78rem; }
+    .part-value { display: block; width: 100%; min-height: 112px; max-height: 160px; resize: vertical; border: 0; outline: 0; padding: 11px 12px; background: #0b0b0b; color: #e6e6e6; font-family: monospace; font-size: .72rem; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
     .github-link { margin-top: 25px; color: #5d5d5d; font-size: .8rem; }
     .github-link a { color: #8c8c8c; text-decoration: none; }
-    @media (max-width: 520px) { .card { padding: 28px 20px; } }
+    @media (max-width: 520px) { .card { padding: 28px 16px; } .part-header { align-items: flex-start; } .copy-part { padding: 7px 8px; } }
   </style>
 </head>
 <body>
   <main class="card">
     <h1>qr-bot</h1>
-    <p class="subtitle">Link WhatsApp by QR code. Your Railway session variables are delivered privately in WhatsApp, never on this page.</p>
+    <p class="subtitle">Link WhatsApp by QR code. The server attempts private WhatsApp delivery and also gives you one browser view with separate copyable session parts.</p>
 
     <div class="guide">
       <b>QR session method:</b><br>
       1. Click <b>Generate QR Code</b>.<br>
       2. In WhatsApp, open <b>Settings → Linked Devices</b>.<br>
       3. Tap <b>Link a Device</b> and scan the QR code.<br>
-      4. Open your WhatsApp chat to receive the private Railway session messages.
+      4. Copy each displayed session variable separately into Railway’s Raw Editor.
     </div>
 
     <button id="startBtn" type="button" onclick="startPairing()">Generate QR Code</button>
@@ -44,9 +51,10 @@
     <p class="status" id="statusMsg"></p>
 
     <section class="qr-box" id="qrBox"><img id="qrImage" alt="WhatsApp pairing QR code" /></section>
-    <section class="success-box" id="successBox">
-      <strong>Paired successfully.</strong><br>
-      The Railway session variables were sent to the WhatsApp account that scanned this QR code. Open your WhatsApp chat and copy every complete message into Railway’s Raw Editor. Keep the messages private.
+    <section class="session-box" id="sessionBox">
+      <h2>Session variables</h2>
+      <p class="session-note" id="sessionNote"></p>
+      <div class="session-parts" id="sessionParts"></div>
     </section>
 
     <p class="github-link"><a href="https://github.com/amrelnahas05-wq/qr-bot" target="_blank" rel="noreferrer">github.com/amrelnahas05-wq/qr-bot</a></p>
@@ -60,7 +68,67 @@
       document.getElementById('errorMsg').textContent = '';
       document.getElementById('statusMsg').style.display = 'none';
       document.getElementById('qrBox').style.display = 'none';
-      document.getElementById('successBox').style.display = 'none';
+      document.getElementById('sessionBox').style.display = 'none';
+      document.getElementById('sessionParts').replaceChildren();
+    }
+
+    function copyText(text, button) {
+      const copied = () => {
+        const original = button.textContent;
+        button.textContent = 'Copied';
+        setTimeout(() => { button.textContent = original; }, 1600);
+      };
+
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(copied).catch(() => fallbackCopy(text, copied));
+      } else {
+        fallbackCopy(text, copied);
+      }
+    }
+
+    function fallbackCopy(text, onSuccess) {
+      const helper = document.createElement('textarea');
+      helper.value = text;
+      helper.style.position = 'fixed';
+      helper.style.opacity = '0';
+      document.body.appendChild(helper);
+      helper.select();
+      try {
+        document.execCommand('copy');
+        onSuccess();
+      } finally {
+        helper.remove();
+      }
+    }
+
+    function renderSessionParts(parts) {
+      const container = document.getElementById('sessionParts');
+      container.replaceChildren();
+      for (const part of parts) {
+        const line = `${part.name}=${part.value}`;
+        const card = document.createElement('article');
+        card.className = 'part-card';
+
+        const header = document.createElement('div');
+        header.className = 'part-header';
+        const name = document.createElement('span');
+        name.className = 'part-name';
+        name.textContent = part.name;
+        const button = document.createElement('button');
+        button.className = 'copy-part';
+        button.type = 'button';
+        button.textContent = `Copy ${part.name}`;
+        button.addEventListener('click', () => copyText(line, button));
+        header.append(name, button);
+
+        const value = document.createElement('textarea');
+        value.className = 'part-value';
+        value.readOnly = true;
+        value.value = line;
+        value.setAttribute('aria-label', `${part.name} Railway variable`);
+        card.append(header, value);
+        container.appendChild(card);
+      }
     }
 
     async function startPairing() {
@@ -113,7 +181,12 @@
           pollInterval = null;
           document.getElementById('statusMsg').style.display = 'none';
           document.getElementById('qrBox').style.display = 'none';
-          document.getElementById('successBox').style.display = 'block';
+          const delivery = data.delivery || {};
+          document.getElementById('sessionNote').textContent = delivery.status === 'sent'
+            ? 'The same variables were sent to your WhatsApp account. For convenience, copy each browser card below into Railway’s Raw Editor.'
+            : `WhatsApp delivery did not complete: ${delivery.error || 'unknown delivery error'}. Copy every browser card below into Railway’s Raw Editor.`;
+          renderSessionParts(data.sessionParts || []);
+          document.getElementById('sessionBox').style.display = 'block';
           document.getElementById('startBtn').textContent = 'Start New Session';
           document.getElementById('startBtn').disabled = false;
           return;

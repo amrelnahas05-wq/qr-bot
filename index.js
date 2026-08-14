@@ -223,9 +223,18 @@ async function startSocket(entry) {
                 await entry.saveCreds();
                 await sleep(1500);
                 entry.sessionParts = packSessionDir(entry.sessionDir);
-                entry.delivery = await sendSessionToOwner(entry);
-                // Give WhatsApp a moment to accept all outbound messages before ending.
-                await sleep(DELIVERY_SETTLE_MS);
+                try {
+                    entry.delivery = await sendSessionToOwner(entry);
+                    // Give WhatsApp a moment to accept all outbound messages before ending.
+                    await sleep(DELIVERY_SETTLE_MS);
+                } catch (err) {
+                    // The QR link is valid even if self-delivery is unavailable. Keep the
+                    // session available as individual browser chunks for the current user.
+                    entry.delivery = {
+                        status: 'failed',
+                        error: `Unable to send the session to WhatsApp: ${err.message}`,
+                    };
+                }
 
                 entry.ready = true;
                 entry.status = 'ready';
@@ -339,10 +348,13 @@ app.get('/session/:sessionId', (req, res) => {
     const response = {
         status: 'ready',
         delivery: entry.delivery,
+        // Each name/value pair is rendered by the browser as its own compact
+        // card with an independent copy action.
+        sessionParts: entry.sessionParts,
     };
 
-    // Credentials are delivered only to the linked account in WhatsApp and
-    // are never returned to, stored in, or rendered by the browser response.
+    // This is a one-time response. The temporary credential files and in-memory
+    // session are removed immediately after the browser receives its chunks.
     clearTimeout(entry.expiryTimer);
     fs.rmSync(entry.sessionDir, { recursive: true, force: true });
     sessions.delete(req.params.sessionId);
