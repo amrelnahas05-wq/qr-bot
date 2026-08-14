@@ -53,6 +53,16 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function formatPairingCodeError(error) {
+    const detail = error?.message || String(error);
+
+    if (/bad-request|\b400\b/i.test(detail)) {
+        return 'WhatsApp rejected the pairing registration before issuing a usable code. Confirm the number is in international digits-only format, wait a minute, then request a fresh code.';
+    }
+
+    return `Unable to request a WhatsApp pairing code: ${detail}`;
+}
+
 async function sendSessionToOwner(entry) {
     const recipient = `${entry.phone}@s.whatsapp.net`;
     const messages = [
@@ -132,7 +142,9 @@ function startSocket(entry) {
         logger: pino({ level: 'silent' }),
         // Keep the paired phone available for the self-message notification.
         markOnlineOnConnect: false,
-        browser: ['qr-bot', 'Chrome', '1.0.0'],
+        // Phone pairing is stricter than QR pairing: use WhatsApp's canonical
+        // browser/OS tuple rather than the application label in browser[0].
+        browser: ['Mac OS', 'Chrome', '120.0.0'],
     });
 
     entry.sock = sock;
@@ -164,7 +176,7 @@ function startSocket(entry) {
                     clearTimeout(entry.initialTimeout);
                     entry.initialResult.resolve({ type: 'phone', code: entry.pairingCode });
                 } catch (err) {
-                    failSession(entry, `Unable to request WhatsApp pairing code: ${err.message}`);
+                    failSession(entry, formatPairingCodeError(err));
                 }
             }
         }

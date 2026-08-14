@@ -40,9 +40,11 @@ function fakeRequire(name) {
 }
 
 let source = fs.readFileSync(path.join(repoRoot, 'index.js'), 'utf8');
+assert.match(source, /browser: \['Mac OS', 'Chrome', '120\.0\.0'\]/);
+assert.doesNotMatch(source, /browser: \['qr-bot', 'Chrome'/);
 source = source.replace(
     /app\.listen\(PORT, \(\) => \{[\s\S]*?\}\);\s*$/,
-    'module.exports = { sendSessionToOwner, sessions };\n',
+    'module.exports = { sendSessionToOwner, sessions, formatPairingCodeError };\n',
 );
 
 const sandbox = {
@@ -58,7 +60,7 @@ const sandbox = {
 };
 vm.runInNewContext(source, sandbox, { filename: 'index.js' });
 
-const { sendSessionToOwner, sessions } = sandbox.module.exports;
+const { sendSessionToOwner, sessions, formatPairingCodeError } = sandbox.module.exports;
 
 async function invokeSessionEndpoint(entry) {
     sessions.set(entry.id, entry);
@@ -71,6 +73,11 @@ async function invokeSessionEndpoint(entry) {
 }
 
 (async () => {
+    assert.match(
+        formatPairingCodeError(new Error('IQ error 400 bad-request')),
+        /request a fresh code/i,
+    );
+
     const outbound = [];
     const delivery = await sendSessionToOwner({
         phone: '201060715493',
