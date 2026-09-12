@@ -51,7 +51,7 @@ assert.doesNotMatch(source, /mode === 'phone'/);
 assert.match(source, /jidNormalizedUser\(entry\.sock\.user\?\.id\)/);
 source = source.replace(
     /app\.listen\(PORT, \(\) => \{[\s\S]*?\}\);\s*$/,
-    'module.exports = { sendSessionToOwner, sessions, getCurrentWaWebVersion, formatConnectionCloseError };\n',
+    'module.exports = { sendSessionToOwner, sessions, getCurrentWaWebVersion, formatConnectionCloseError, inspectAuthFiles, waitForCompleteAuthState };\n',
 );
 
 const sandbox = {
@@ -72,6 +72,8 @@ const {
     sessions,
     getCurrentWaWebVersion,
     formatConnectionCloseError,
+    inspectAuthFiles,
+    waitForCompleteAuthState,
 } = sandbox.module.exports;
 
 async function invokeSessionEndpoint(entry) {
@@ -103,6 +105,14 @@ async function invokePairEndpoint(body) {
         [2, 3000, 1045204510],
     );
     assert.match(formatConnectionCloseError(405), /Web handshake \(405\)/);
+
+    const authDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qr-bot-auth-'));
+    fs.writeFileSync(path.join(authDir, 'creds.json'), JSON.stringify({ noiseKey: {} }));
+    fs.writeFileSync(path.join(authDir, 'app-state-sync-key-1.json'), '{}');
+    const authInspection = inspectAuthFiles(authDir);
+    assert.strictEqual(authInspection.credsValid, true);
+    assert.deepEqual(authInspection.keyFiles, ['app-state-sync-key-1.json']);
+    assert.strictEqual((await waitForCompleteAuthState(authDir)).keyFiles.length, 1);
 
     const phoneMode = await invokePairEndpoint({ mode: 'phone' });
     assert.strictEqual(phoneMode.statusCode, 400);

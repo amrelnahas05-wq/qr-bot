@@ -22,6 +22,8 @@ const SESSION_LIFETIME_MS = 5 * 60 * 1000;
 const MAX_RESTART_ATTEMPTS = 3;
 const DELIVERY_SETTLE_MS = 750;
 const DELIVERY_MAX_ATTEMPTS = 3;
+const AUTH_FILES_WAIT_MS = 15000;
+const AUTH_FILES_POLL_MS = 500;
 // Railway accepts environment-variable values up to 32,768 characters.
 // Keep chunks below that limit to leave a safety margin.
 const SESSION_CHUNK_SIZE = 28000;
@@ -52,6 +54,49 @@ function packSessionDir(sessionDir) {
 
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function inspectAuthFiles(sessionDir) {
+    const entries = fs.readdirSync(sessionDir, { withFileTypes: true });
+    const jsonFiles = entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+        .map((entry) => entry.name);
+    const credsPath = path.join(sessionDir, 'creds.json');
+    let credsValid = false;
+
+    if (fs.existsSync(credsPath) && fs.statSync(credsPath).size > 0) {
+        try {
+            const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+            credsValid = Boolean(creds && typeof creds === 'object' && !Array.isArray(creds));
+        } catch (_) {
+            credsValid = false;
+        }
+    }
+
+    return {
+        credsValid,
+        keyFiles: jsonFiles.filter((name) => name !== 'creds.json'),
+        jsonFiles,
+    };
+}
+
+async function waitForCompleteAuthState(sessionDir) {
+    const deadline = Date.now() + AUTH_FILES_WAIT_MS;
+    let inspection = inspectAuthFiles(sessionDir);
+
+    while (!(inspection.credsValid && inspection.keyFiles.length > 0) && Date.now() < deadline) {
+        await sleep(AUTH_FILES_POLL_MS);
+        inspection = inspectAuthFiles(sessionDir);
+    }
+
+    if (!inspection.credsValid) {
+        throw new Error('creds.json is missing, empty, or invalid. WhatsApp authentication was not fully saved.');
+    }
+    if (!inspection.keyFiles.length) {
+        throw new Error('No Baileys key files were saved alongside creds.json. WhatsApp authentication was incomplete.');
+    }
+
+    return inspection;
 }
 
 async function getCurrentWaWebVersion() {
@@ -221,7 +266,8 @@ async function startSocket(entry) {
         if (connection === 'open') {
             try {
                 await entry.saveCreds();
-                await sleep(1500);
+                const authFiles = await waitForCompleteAuthState(entry.sessionDir);
+                console.log(`[qr-bot] Verified WhatsApp auth state: creds.json plus ${authFiles.keyFiles.length} key file(s).`);
                 entry.sessionParts = packSessionDir(entry.sessionDir);
                 try {
                     entry.delivery = await sendSessionToOwner(entry);

@@ -29,7 +29,7 @@ Open [http://localhost:3000](http://localhost:3000). Keep the terminal running u
 
 Click **Generate QR Code**, then open WhatsApp and go to **Settings → Linked Devices → Link a Device**. Scan the displayed QR code with the WhatsApp account that should receive the session.
 
-Once WhatsApp opens the linked session, `qr-bot` packages the authentication files and attempts to send a private notice plus every Railway variable to that account’s own WhatsApp chat. At the same time, the pairing page presents a **one-time** recovery view: every `SESSION_ID_PARTS` or `SESSION_ID_N` variable appears in its own compact card, with its own copy button.
+Once WhatsApp opens the linked session, `qr-bot` waits for a valid, non-empty `creds.json` and at least one Baileys key file before packaging the authentication files. If the authentication state is incomplete, it refuses to generate a session archive rather than producing unusable tokens. After verification, it attempts to send a private notice plus every Railway variable to that account’s own WhatsApp chat. At the same time, the pairing page presents a **one-time** recovery view: every `SESSION_ID_PARTS` or `SESSION_ID_N` variable appears in its own compact card, with its own copy button.
 
 If WhatsApp delivery fails, use the same individual browser cards. Copy every complete `NAME=value` variable into Railway’s Raw Editor before you leave or refresh the page. The temporary server files and the one-time session response are then removed.
 
