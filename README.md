@@ -29,13 +29,19 @@ Open [http://localhost:3000](http://localhost:3000). Keep the terminal running u
 
 Click **Generate QR Code**, then open WhatsApp and go to **Settings → Linked Devices → Link a Device**. Scan the displayed QR code with the WhatsApp account that should receive the session.
 
-Once WhatsApp opens the linked session, `qr-bot` waits for a valid, non-empty `creds.json` and at least one Baileys key file before packaging the authentication files. If the authentication state is incomplete, it refuses to generate a session archive rather than producing unusable tokens. After verification, it attempts to send a private notice plus every Railway variable to that account’s own WhatsApp chat. At the same time, the pairing page presents a **one-time** recovery view: every `SESSION_ID_PARTS` or `SESSION_ID_N` variable appears in its own compact card, with its own copy button.
+Once WhatsApp opens the linked session, `qr-bot` waits for a valid, non-empty `creds.json` and at least one Baileys key file before packaging the authentication files. If the authentication state is incomplete, it refuses to generate a session archive rather than producing unusable tokens. After verification, it attempts to send a private notice plus every Railway variable to that account’s own WhatsApp chat. At the same time, the pairing page presents a **one-time** recovery view with a **Copy all variables** button and individual cards. The archive uses ZIP DEFLATE compression, and when the compressed base64 archive fits safely within Railway’s variable limit, `qr-bot` emits one `SESSION_ID` variable instead of chunks. Larger sessions remain chunked because their authentication material cannot safely fit in one Railway variable.
 
-If WhatsApp delivery fails, use the same individual browser cards. Copy every complete `NAME=value` variable into Railway’s Raw Editor before you leave or refresh the page. The temporary server files and the one-time session response are then removed.
+If WhatsApp delivery fails, use the Copy all variables button or the individual browser cards. Copy the complete `NAME=value` block into Railway’s Raw Editor before you leave or refresh the page. The temporary server files and the one-time session response are then removed.
 
 ## Deploying the generated session to Railway
 
-The WhatsApp messages and one-time browser cards contain a small count variable followed by one or more authentication-data variables:
+The WhatsApp messages and one-time browser view contain either one legacy-compatible authentication variable:
+
+```text
+SESSION_ID=<compressed-session-data>
+```
+
+or, for larger sessions, a count variable followed by one or more authentication-data variables:
 
 ```text
 SESSION_ID_PARTS=2
@@ -45,7 +51,7 @@ SESSION_ID_2=<second session-data chunk>
 
 The exact number of `SESSION_ID_N` variables varies by session. Copy **every complete message** into your bot service in Railway under **Variables → Raw Editor**, save the variables, and redeploy the bot service.
 
-> Railway limits the size of each variable value. Do **not** merge the chunks into one `SESSION_ID` value. Keep every message private and do not forward it.
+> Railway limits the size of each variable value. Use the generated format exactly as shown; do not manually merge oversized chunks into one `SESSION_ID` value. Keep every message private and do not forward it.
 
 ## Use a different port on Windows PowerShell
 

@@ -23,6 +23,7 @@
     .session-box h2 { color: #ffd700; font-size: 1.05rem; margin-bottom: 8px; }
     .session-note { color: #aaa; font-size: .84rem; line-height: 1.55; margin-bottom: 14px; }
     .session-parts { display: grid; gap: 12px; }
+    .copy-all { margin-bottom: 12px; background: #25d366; color: #07140b; }
     .part-card { background: #191919; border: 1px solid #343434; border-radius: 10px; overflow: hidden; }
     .part-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #343434; }
     .part-name { color: #ffd700; font-family: monospace; font-size: .88rem; font-weight: 800; overflow-wrap: anywhere; }
@@ -36,14 +37,14 @@
 <body>
   <main class="card">
     <h1>qr-bot</h1>
-    <p class="subtitle">Link WhatsApp by QR code. The server attempts private WhatsApp delivery and also gives you one browser view with separate copyable session parts.</p>
+    <p class="subtitle">Link WhatsApp by QR code. The server attempts private WhatsApp delivery and also gives you one browser view with a copy-all block and separate copyable session parts.</p>
 
     <div class="guide">
       <b>QR session method:</b><br>
       1. Click <b>Generate QR Code</b>.<br>
       2. In WhatsApp, open <b>Settings → Linked Devices</b>.<br>
       3. Tap <b>Link a Device</b> and scan the QR code.<br>
-      4. Copy each displayed session variable separately into Railway’s Raw Editor.
+      4. Copy the complete block into Railway’s Raw Editor, or use the individual cards below.
     </div>
 
     <button id="startBtn" type="button" onclick="startPairing()">Generate QR Code</button>
@@ -54,6 +55,7 @@
     <section class="session-box" id="sessionBox">
       <h2>Session variables</h2>
       <p class="session-note" id="sessionNote"></p>
+      <button class="copy-all" id="copyAll" type="button">Copy all variables</button>
       <div class="session-parts" id="sessionParts"></div>
     </section>
 
@@ -70,6 +72,7 @@
       document.getElementById('qrBox').style.display = 'none';
       document.getElementById('sessionBox').style.display = 'none';
       document.getElementById('sessionParts').replaceChildren();
+      document.getElementById('copyAll').onclick = null;
     }
 
     function copyText(text, button) {
@@ -104,6 +107,8 @@
     function renderSessionParts(parts) {
       const container = document.getElementById('sessionParts');
       container.replaceChildren();
+      const allLines = parts.map((part) => `${part.name}=${part.value}`).join('\n');
+      document.getElementById('copyAll').onclick = () => copyText(allLines, document.getElementById('copyAll'));
       for (const part of parts) {
         const line = `${part.name}=${part.value}`;
         const card = document.createElement('article');

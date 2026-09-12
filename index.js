@@ -27,6 +27,7 @@ const AUTH_FILES_POLL_MS = 500;
 // Railway accepts environment-variable values up to 32,768 characters.
 // Keep chunks below that limit to leave a safety margin.
 const SESSION_CHUNK_SIZE = 28000;
+const SINGLE_SESSION_LIMIT = 30000;
 let cachedWaWebVersion = null;
 let waWebVersionRequest = null;
 
@@ -34,9 +35,17 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 function packSessionDir(sessionDir) {
-    const zip = new AdmZip();
+    // The default adm-zip mode is STORE (no compression). DEFLATE materially
+    // reduces the archive for JSON auth files while remaining ZIP-compatible
+    // with restore-session.js and Baileys' session archive extractor.
+    const zip = new AdmZip({ method: 8 });
     zip.addLocalFolder(sessionDir);
     const encoded = zip.toBuffer().toString('base64');
+
+    if (encoded.length <= SINGLE_SESSION_LIMIT) {
+        return [{ name: 'SESSION_ID', value: encoded }];
+    }
+
     const parts = [];
 
     for (let offset = 0, index = 1; offset < encoded.length; offset += SESSION_CHUNK_SIZE, index += 1) {
